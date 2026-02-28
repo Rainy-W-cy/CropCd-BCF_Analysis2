@@ -1,0 +1,95 @@
+project:
+  seed: 42
+  timezone: "Asia/Tokyo"
+
+data:
+  excel_path: "C:\\My File\\cao\\soil\\威宁县_土壤-农产品_修正并删除异常值-bcf.xlsx"
+  mode: "sheets"
+  sheet_name: null
+  #更改目标元素
+  columns:
+    target_bcf: "BCF"
+    ph: "pH"
+    x: "X"
+    y: "Y"
+  drop_from_model: ["X", "Y"]
+
+ph_bins:
+  edges: [-inf, 5.5, 6.5, 7.5, inf]
+  labels: ["strong_acid", "acid", "neutral", "alkaline"]
+
+lod:
+  crop_cd_mgkg: null
+
+gb:
+  standard: "GB2762-2022"
+  cd_limits_mgkg:
+    potato: 0.1
+    corn: 0.1
+
+spatial_cv:
+  n_splits: 5
+  method: "grid"
+  grid:
+    n_bins_x: 8
+    n_bins_y: 8
+  kmeans:
+    n_clusters: 40
+
+modeling:
+  models: ["rf", "xgb","svm","ann"]
+  tune: true
+  tune_n_iter: 25
+  max_train_rows: 4000
+
+shap:
+  sample_rows: 800
+  top_k: 10
+
+thresholds:
+  n_rows_per_group: 300
+  soil_cd_min: 0.001
+  soil_cd_max: 10.0
+
+
+# ===== 相关性高级输出（分区 + 上下三角拼图；可按需调整） =====
+corr_advanced:
+  method: "pearson"
+  # 每个分区至少多少样本才绘图
+  min_rows: 30
+  # 最多展示多少个数值变量（变量太多会很挤）；按缺失率优先
+  max_vars: 25
+  # 是否对相关矩阵做变量层次聚类排序（需要 scipy；若想更像原版，可开 true）
+  cluster: true
+  # 输出目录（相对 outputs/）
+  out_subdir: "corr_advanced"
+  # 是否输出总 PDF
+  export_full: true
+  export_triangle: false
+  export_pdf: true
+  pdf_name: "corr_advanced_all.pdf"
+    # 相关性图显式排除列：按你表格字段写（存在才会被排除，不存在自动忽略）
+  exclude_cols: ["X", "Y"]   # 你现在明确不要坐标参与相关性
+
+  # 优先展示列：存在则排在前面（不存在自动忽略）
+  prefer_cols: ["BCF", "pH"]
+  group_keys: ["crop", "ph_bin"]   # 分作物×pH
+
+# ===== 经纬度点位地图输出（不依赖 GIS 库） =====
+map_output:
+  lon_col: "lon"
+  lat_col: "lat"
+  out_subdir: "maps"
+  by_group: true
+  s: 14
+  # vars_to_map: ["bcf", "soil_cd_mgkg", "crop_cd_mgkg", "ph"]
+  
+holdout:
+  enabled: true
+  test_size: 0.30          # 7:3 -> 0.30；8:2 -> 0.20
+  random_state: 42         # 不写则用 project.seed
+  split_by_group: true     # true: 每个组内 split；false: 全数据 split
+  group_keys: ["crop", "ph_bin"]
+  min_rows_per_group: 20
+  out_subdir: "holdout_70_30"
+
