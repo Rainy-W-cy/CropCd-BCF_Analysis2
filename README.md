@@ -1,4 +1,6 @@
 # 土壤-作物Cd与BCF分析（按任务书技术路线）
+## 虚拟环境创建
+python -m venv .venv
 ## 运行环境安装
 pip install -r requirements.txt
 ## 运行顺序（Jupyter）

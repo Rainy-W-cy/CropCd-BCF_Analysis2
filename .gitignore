@@ -12,6 +12,7 @@ Thumbs.db
 # Python
 __pycache__/
 *.pyc
+.venv/
 .venv311/
 myenv/
 # Node
