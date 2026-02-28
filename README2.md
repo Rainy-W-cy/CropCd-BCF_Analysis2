@@ -18,3 +18,4 @@ notebooks/：
 ## 更改目标元素
 1) 如果想更改目标元素比如预测作物cd，更改config.yaml中target_bcf变量为表格中相应变量即可
 2) 相关性分析方面，应排除经纬度，同时prefer的元素可以自行设置
+# CropCd-BCF_Analysis
