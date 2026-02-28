@@ -1,5 +1,5 @@
-````markdown
-# 📘 Git 常用操作指南（Windows + GitHub SSH）
+
+## 📘 Git 常用操作指南（Windows + GitHub SSH）
 
 适用于：  
 - 已配置好 SSH  
@@ -8,7 +8,7 @@
 
 ---
 
-# 🚀 一、首次上传本地项目到 GitHub
+🚀 一、首次 上传本地项目到 GitHub
 
 ## 1️⃣ 进入项目目录
 
