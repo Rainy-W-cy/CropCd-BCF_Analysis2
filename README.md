@@ -2,19 +2,20 @@
 ## 虚拟环境创建
 python -m venv .venv
 ## 运行环境安装
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
+或pip install -r requirements.txt
 ## 运行顺序（Jupyter）
 notebooks/：
 1) 01_data_prep.ipynb 数据整理
-2) 02_qc_optional.ipynb数据分析
+2) 02_qc_optional.ipynb 数据分析
 3) 03_eda_feature.ipynb 也可不跑此03，相关性简单分析
 4) 03b_corr_advanced.ipynb相关度分析
 5) 04_modeling_spatialcv.ipynb 空间交叉验证
-6) 04b_holdout_70_30.ipynb 7:3划分
-7) 05_shap.ipynb 
+6) 04b_holdout_70_30.ipynb 7:3划分方法
+7) 05_shap_new.ipynb shap图
 8) 06_thresholds_gb.ipynb 阈值分析也可不做
-9) 08_maps 分布地图
-10) report
+9) 08_maps 空间分布地图
+10) 07_reports_pdf.ipynb 输出为pdf
 
 所有参数在 config/config.yaml。修改后重新跑对应 notebook 即可复现更新结果。
 ## 更改目标元素
