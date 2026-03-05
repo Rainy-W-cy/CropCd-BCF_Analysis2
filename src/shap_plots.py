@@ -1,14 +1,14 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 from pathlib import Path
-from typing import Sequence, Union
+from typing import Sequence
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
 
 def _as_dense_float_matrix(X) -> np.ndarray:
     """Convert X to dense float numpy array (supports numpy, pandas, scipy sparse)."""
-    # scipy sparse
     try:
         import scipy.sparse as sp  # type: ignore
         if sp.issparse(X):
@@ -16,11 +16,9 @@ def _as_dense_float_matrix(X) -> np.ndarray:
     except Exception:
         pass
 
-    # pandas
     try:
         import pandas as pd  # type: ignore
         if isinstance(X, pd.DataFrame):
-            # For plotting colors, encode non-numeric columns
             df = X.copy()
             for c in df.columns:
                 if not pd.api.types.is_numeric_dtype(df[c]):
@@ -29,7 +27,6 @@ def _as_dense_float_matrix(X) -> np.ndarray:
     except Exception:
         pass
 
-    # numpy
     arr = np.asarray(X)
     if arr.ndim != 2:
         raise ValueError("X must be 2D")
@@ -44,15 +41,11 @@ def shap_importance_combo(
     title: str = "SHAP importance (bar + beeswarm)",
     max_display: int = 20,
     jitter: float = 0.22,
-    dot_size: float = 18.0,
-    alpha: float = 0.75,
+    dot_size: float = 20.0,
+    alpha: float = 0.85,
 ):
     """
     Paper-style SHAP plot: mean|SHAP| bars + beeswarm in one figure.
-
-    Requirements:
-    - shap_values shape == X shape (n_samples, n_features)
-    - X must be numeric or convertible to numeric (DataFrame allowed; non-numeric will be encoded for color only)
     """
     out_png = Path(out_png)
     out_png.parent.mkdir(parents=True, exist_ok=True)
@@ -78,12 +71,11 @@ def shap_importance_combo(
     X_ord = Xv[:, order]
     names_ord = [names[i] for i in order]
 
-    # Normalize X for coloring per feature
     Xn = np.empty_like(X_ord)
     for j in range(X_ord.shape[1]):
         col = X_ord[:, j]
-        lo = np.nanpercentile(col, 1)
-        hi = np.nanpercentile(col, 99)
+        lo = np.nanpercentile(col, 2)
+        hi = np.nanpercentile(col, 98)
         if not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
             lo, hi = np.nanmin(col), np.nanmax(col)
         if not np.isfinite(lo) or not np.isfinite(hi) or hi == lo:
@@ -99,11 +91,27 @@ def shap_importance_combo(
         "axes.labelweight": "bold",
     })
 
-    fig, ax = plt.subplots(figsize=(11.5, 7.5))
+    cmap = LinearSegmentedColormap.from_list(
+        "shap_soil",
+        ["#A94442", "#E4A8AA", "#F9F0E0", "#CCE7E3", "#2F6C74"],
+    )
+
+    fig, ax = plt.subplots(figsize=(11.8, 7.8))
+    fig.patch.set_facecolor("#F9F7F1")
+    ax.set_facecolor("#F9F7F1")
     ax2 = ax.twiny()
+    ax2.set_facecolor("none")
     y = np.arange(len(names_ord))[::-1]
 
-    ax2.barh(y, mean_abs_ord[::-1], height=0.72, alpha=0.45, edgecolor="black", linewidth=1.0)
+    ax2.barh(
+        y,
+        mean_abs_ord[::-1],
+        height=0.74,
+        color="#EDC4A7",
+        alpha=0.6,
+        edgecolor="#374151",
+        linewidth=0.8,
+    )
     ax2.set_xlabel("Mean |SHAP|", fontweight="bold")
     ax2.tick_params(axis="x", labelsize=10)
 
@@ -119,9 +127,18 @@ def shap_importance_combo(
         if vals.size == 0:
             continue
         yj = y0 + rng.uniform(-jitter, jitter, size=vals.size)
-        sc_last = ax.scatter(vals, yj, c=cols, s=dot_size, alpha=alpha, linewidths=0)
+        sc_last = ax.scatter(
+            vals,
+            yj,
+            c=cols,
+            cmap=cmap,
+            s=dot_size,
+            alpha=alpha,
+            linewidths=0.2,
+            edgecolors="#0F172A",
+        )
 
-    ax.axvline(0.0, linewidth=1.6)
+    ax.axvline(0.0, linewidth=1.7, color="#374151")
     ax.set_yticks(y)
     ax.set_yticklabels(names_ord[::-1], fontweight="bold")
     ax.set_xlabel("SHAP Value", fontweight="bold")
@@ -134,10 +151,14 @@ def shap_importance_combo(
         pad = (q1 - q0) * 0.08 if q1 > q0 else 1.0
         ax.set_xlim(q0 - pad, q1 + pad)
 
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.6)
+        spine.set_color("#111827")
+
     if sc_last is not None:
-        cbar = fig.colorbar(sc_last, ax=ax, fraction=0.035, pad=0.03)
-        cbar.set_label("Feature value (Low → High)", fontweight="bold")
+        cbar = fig.colorbar(sc_last, ax=ax, fraction=0.034, pad=0.03)
+        cbar.set_label("Feature value (Low -> High)", fontweight="bold")
 
     fig.tight_layout()
-    fig.savefig(out_png, dpi=320)
+    fig.savefig(out_png, dpi=340)
     plt.close(fig)

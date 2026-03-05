@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.colors import LinearSegmentedColormap
 
 
 # =========================
@@ -25,7 +26,7 @@ class CorrConfig:
     export_full: bool = True
     export_triangle: bool = False  # reserved
 
-    # NEW: config-driven column control
+    # config-driven column control
     exclude_cols: List[str] = None
     prefer_cols: List[str] = None
 
@@ -54,12 +55,10 @@ def _get_cfg(cfg: Dict) -> CorrConfig:
 # Variable selection (data-driven)
 # =========================
 def _resolve_default_excludes_from_cfg(cfg: Dict) -> List[str]:
-    """Default excludes: x/y coordinates from cfg + common non-feature columns if present."""
+    """Default excludes: x/y coordinates from cfg."""
     cols_cfg = (cfg.get("data", {}) or {}).get("columns", {}) or {}
     xcol = cols_cfg.get("x")
     ycol = cols_cfg.get("y")
-    # NOTE: do NOT force-drop lon/lat here because your project sometimes uses X/Y only;
-    # you can add lon/lat in config exclude_cols if needed.
     out = []
     if xcol:
         out.append(str(xcol))
@@ -75,13 +74,7 @@ def _select_numeric_vars(
     exclude_cols: Optional[List[str]] = None,
     prefer_cols: Optional[List[str]] = None,
 ) -> List[str]:
-    """
-    Select numeric columns from *existing* dataframe columns only.
-    Ranking rule:
-      - missing-rate ascending (prefer less missing)
-      - variance descending (prefer more informative)
-    Then apply prefer_cols (if present) to move to front.
-    """
+    """Select numeric columns from existing dataframe columns only."""
     exclude_cols = exclude_cols or []
     prefer_cols = prefer_cols or []
 
@@ -89,7 +82,6 @@ def _select_numeric_vars(
     if num.shape[1] == 0:
         return []
 
-    # drop excluded columns if exist
     drop = [c for c in exclude_cols if c in num.columns]
     if drop:
         num = num.drop(columns=drop, errors="ignore")
@@ -103,10 +95,8 @@ def _select_numeric_vars(
     rank = rank.sort_values(["miss", "var"], ascending=[True, False])
     cols = rank["col"].tolist()
 
-    # user requirement: do NOT include bcf_calc (even if exists)
     cols = [c for c in cols if str(c).lower() != "bcf_calc"]
 
-    # prefer_cols to front (only those present)
     if prefer_cols:
         front = [c for c in prefer_cols if c in cols]
         cols = front + [c for c in cols if c not in front]
@@ -115,64 +105,55 @@ def _select_numeric_vars(
 
 
 def _heuristic_order_soil_science(cols: List[str]) -> List[str]:
-    """Heuristic soil-science order:
-    BCF/Cd → pH/SOM/CEC → texture/water → nutrients → terrain/human → others
-    (Only reorders among EXISTING cols; never injects non-existing.)
-    """
+    """Heuristic soil-science order."""
+
     def match_any(candidates: List[str]) -> List[str]:
         out: List[str] = []
         for cand in candidates:
             cand_l = cand.lower()
-            # exact match
             for c in cols:
                 if c.lower() == cand_l and c not in out:
                     out.append(c)
-            # contains match
             for c in cols:
                 if cand_l in c.lower() and c not in out:
                     out.append(c)
         return out
 
-    # block1: BCF/Cd (NO bcf_calc)
     block1 = match_any([
         "BCF", "bcf",
         "soil_cd", "soil_cd_mgkg", "cd_soil", "soil cd", "soilcd",
         "crop_cd", "crop_cd_mgkg", "cd_crop", "crop cd", "cropcd",
-        "Cd", "cd"
+        "Cd", "cd",
     ])
 
-    # block2: pH/SOM/CEC
     block2 = match_any([
         "pH", "ph",
         "SOM", "som", "SOC", "soc", "organic", "organic_matter",
-        "CEC", "cec"
+        "CEC", "cec",
     ])
 
-    # block3: texture/water
     block3 = match_any([
         "clay", "clay_content",
         "particle", "particle_content", "silt",
         "sand", "sand_content",
         "water", "water_content", "moisture",
-        "bulk_density", "bulk", "density"
+        "bulk_density", "bulk", "density",
     ])
 
-    # block4: nutrients
     block4 = match_any([
         "N", "n", "TN", "tn", "total_n", "nitrogen",
         "P", "p", "TP", "tp", "total_p", "phosphorus",
         "K", "k", "TK", "tk", "total_k", "potassium",
-        "Mn", "mn", "Zn", "zn", "Cu", "cu", "Fe", "fe", "Mg", "mg", "Ca", "ca"
+        "Mn", "mn", "Zn", "zn", "Cu", "cu", "Fe", "fe", "Mg", "mg", "Ca", "ca",
     ])
 
-    # block5: terrain/human (NOTE: do not force include x/y/lon/lat; those should be excluded upstream)
     block5 = match_any([
         "altitude", "elevation",
         "geology",
         "soil_type", "soil type",
         "land_use", "land use", "land_use_type",
         "vegetation", "vegetation_cover_type",
-        "distance", "distance_from_pollution_source"
+        "distance", "distance_from_pollution_source",
     ])
 
     ordered: List[str] = []
@@ -215,16 +196,23 @@ def _plot_corr_full_annot_paper(
 ):
     _set_paper_fonts()
 
+    corr = corr.copy()
     cols = list(corr.columns)
     corr = corr.loc[cols, cols]
     n = corr.shape[0]
-    M = corr.to_numpy()
+    M = corr.to_numpy(dtype=float)
 
     fig_w = max(12, 0.55 * n)
     fig_h = max(10, 0.48 * n)
     fig, ax = plt.subplots(figsize=(fig_w, fig_h))
+    fig.patch.set_facecolor("#F9F7F1")
+    ax.set_facecolor("#F9F7F1")
 
-    im = ax.imshow(M, vmin=-1, vmax=1)
+    cmap = LinearSegmentedColormap.from_list(
+        "corr_soil",
+        ["#A94442", "#E4A8AA", "#F9F0E0", "#CCE7E3", "#2F6C74"],
+    )
+    im = ax.imshow(M, vmin=-1, vmax=1, cmap=cmap)
     ax.set_title(title, fontsize=fontsize_title, pad=10)
 
     ax.set_xticks(range(n))
@@ -232,32 +220,37 @@ def _plot_corr_full_annot_paper(
     ax.set_xticklabels(cols, rotation=90, fontsize=fontsize_tick_x, fontweight="bold")
     ax.set_yticklabels(cols, fontsize=fontsize_tick_y, fontweight="bold")
 
-    ax.set_xticks(np.arange(-.5, n, 1), minor=True)
-    ax.set_yticks(np.arange(-.5, n, 1), minor=True)
-    ax.grid(which="minor", linewidth=0.6)
+    ax.set_xticks(np.arange(-0.5, n, 1), minor=True)
+    ax.set_yticks(np.arange(-0.5, n, 1), minor=True)
+    ax.grid(which="minor", linewidth=0.75, color="white")
     ax.tick_params(which="minor", bottom=False, left=False)
 
     for spine in ax.spines.values():
-        spine.set_linewidth(1.5)
+        spine.set_linewidth(1.8)
+        spine.set_color("#111827")
 
     if annotate and n <= 30:
         for i in range(n):
             for j in range(n):
                 v = M[i, j]
                 if np.isfinite(v):
+                    tcolor = "white" if abs(v) >= 0.55 else "#111827"
                     ax.text(
-                        j, i, fmt.format(v),
-                        ha="center", va="center",
+                        j,
+                        i,
+                        fmt.format(v),
+                        ha="center",
+                        va="center",
                         fontsize=fontsize_annot,
                         fontweight="bold",
-                        color="black"
+                        color=tcolor,
                     )
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
     cbar.set_label("Correlation", fontsize=10, fontweight="bold")
 
     fig.tight_layout()
-    fig.savefig(out_png, dpi=300)
+    fig.savefig(out_png, dpi=320)
     plt.close(fig)
 
 
@@ -273,28 +266,24 @@ def build_group_correlations(
 ) -> Dict[Tuple, pd.DataFrame]:
     """
     Build correlation matrices per group and export PNGs.
-    Variable selection is DATA-DRIVEN (based on columns existing in df).
-    Extra controls in cfg['corr_advanced']: exclude_cols / prefer_cols.
+    Variable selection is DATA-DRIVEN.
     """
     conf = _get_cfg(cfg)
 
     out_dir = Path(out_dir) / conf.out_subdir
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # config-driven excludes + default excludes (x/y)
     default_excludes = _resolve_default_excludes_from_cfg(cfg)
     exclude_cols = []
     for c in (default_excludes + (conf.exclude_cols or [])):
         if c not in exclude_cols:
             exclude_cols.append(c)
 
-    # merge prefer_cols: cfg prefer first, then function arg prefer
     prefer_cols_final: List[str] = []
     for c in ((conf.prefer_cols or []) + (prefer_cols or [])):
         if c not in prefer_cols_final:
             prefer_cols_final.append(c)
 
-    # group keys: ignore missing keys (no crash)
     usable_group_keys = [k for k in group_keys if k in df.columns]
     grouped = df.groupby(usable_group_keys, dropna=False) if usable_group_keys else [(("ALL",), df)]
 
@@ -314,11 +303,10 @@ def build_group_correlations(
         if len(cols) < 2:
             continue
 
-        # user requested ordering (only among existing cols)
         cols = _heuristic_order_soil_science(cols)
 
         corr = sub[cols].corr(method=conf.method)
-        corr = corr.loc[cols, cols]  # enforce identical x/y order
+        corr = corr.loc[cols, cols]
 
         g_key = g if isinstance(g, tuple) else (g,)
         corr_maps[g_key] = corr
@@ -352,7 +340,7 @@ def export_corr_pdf(out_base: str | Path, cfg: Dict) -> Optional[Path]:
     with PdfPages(pdf_path) as pdf:
         for p in pngs:
             img = plt.imread(str(p))
-            fig, ax = plt.subplots(figsize=(11.69, 8.27))  # A4 landscape
+            fig, ax = plt.subplots(figsize=(11.69, 8.27))
             ax.imshow(img)
             ax.axis("off")
             ax.set_title(p.stem[:90], fontsize=10)
