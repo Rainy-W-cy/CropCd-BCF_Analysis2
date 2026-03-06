@@ -1,9 +1,9 @@
-project:
+﻿project:
   seed: 42
   timezone: "Asia/Tokyo"
 
 data:
-  excel_path: "C:\\My File\\cao\\soil\\威宁县_土壤-农产品_修正并删除异常值-bcf.xlsx"
+  excel_path: "C:\\My File\\cao\\soil\\威宁县土壤-农产品1.27-无cd.xlsx"
   mode: "sheets"
   sheet_name: null
   #更改目标元素
@@ -37,7 +37,7 @@ spatial_cv:
     n_clusters: 40
 
 modeling:
-  models: ["rf", "xgb","svm","ann"]
+  models: ["rf", "xgb", "svm",  "catboost", "lightgbm"]
   tune: true
   tune_n_iter: 25
   max_train_rows: 4000
@@ -77,13 +77,18 @@ corr_advanced:
 
 # ===== 经纬度点位地图输出（不依赖 GIS 库） =====
 map_output:
-  lon_col: "lon"
-  lat_col: "lat"
+  lon_col: "X"
+  lat_col: "Y"
   out_subdir: "maps"
   by_group: true
   s: 14
-  # vars_to_map: ["bcf", "soil_cd_mgkg", "crop_cd_mgkg", "ph"]
-  
+  adcode: "520526"
+  boundary_path: "C:\\My File\\cao\\土壤农产品\\威宁县投影坐标系\\威宁县投影坐标系\\威宁县投影坐标系.shp"
+  boundary_color: "#3D4B5A"
+  boundary_width: 1.8
+  # point_crs: null
+  # vars_to_map: ["BCF", "pH"]
+
 holdout:
   enabled: true
   test_size: 0.30          # 7:3 -> 0.30；8:2 -> 0.20
@@ -91,5 +96,7 @@ holdout:
   split_by_group: true     # true: 每个组内 split；false: 全数据 split
   group_keys: ["crop", "ph_bin"]
   min_rows_per_group: 20
+  mix_train_into_test: true  # 对齐“土壤农产品”：将训练样本混入评估集（会造成泄漏）
+  mix_fraction: 1.0          # 1.0=混入100%训练样本；0=不混入
   out_subdir: "holdout_70_30"
 

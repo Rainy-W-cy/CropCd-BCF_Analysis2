@@ -1,4 +1,4 @@
-pandas
+﻿pandas
 numpy
 openpyxl
 pyyaml
@@ -9,5 +9,8 @@ matplotlib
 scipy
 pyarrow
 ipywidgets
-scikit-learn
 catboost
+lightgbm
+geopandas
+pyshp
+pypdf

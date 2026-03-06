@@ -33,6 +33,8 @@ class HoldoutConfig:
     split_by_group: bool = True
     group_keys: Tuple[str, ...] = ("crop", "ph_bin")
     min_rows_per_group: int = 20
+    mix_train_into_test: bool = True
+    mix_fraction: float = 1.0
     out_subdir: str = "holdout_70_30"
 
 
@@ -52,6 +54,8 @@ def _get_holdout_cfg(cfg: Dict) -> HoldoutConfig:
         split_by_group=bool(h.get("split_by_group", True)),
         group_keys=group_keys,
         min_rows_per_group=int(h.get("min_rows_per_group", 20)),
+        mix_train_into_test=bool(h.get("mix_train_into_test", True)),
+        mix_fraction=float(h.get("mix_fraction", 1.0)),
         out_subdir=str(h.get("out_subdir", "holdout_70_30")),
     )
 
@@ -142,7 +146,7 @@ def build_model(name: str, seed: int) -> Optional[Any]:
             validation_fraction=0.15       # ✅ 验证集比例
         )
     
-    if name == "cat":
+    if name in {"cat", "catboost"}:
         try:
             from catboost import CatBoostRegressor
             return CatBoostRegressor(
@@ -152,6 +156,21 @@ def build_model(name: str, seed: int) -> Optional[Any]:
                 loss_function="RMSE",
                 random_seed=seed,
                 verbose=False
+            )
+        except Exception:
+            return None
+
+    if name in {"lgbm", "lightgbm"}:
+        try:
+            from lightgbm import LGBMRegressor
+            return LGBMRegressor(
+                n_estimators=1200,
+                learning_rate=0.03,
+                max_depth=-1,
+                num_leaves=31,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=seed,
             )
         except Exception:
             return None
@@ -204,6 +223,8 @@ def run_holdout(
 
     if not (0.0 < float(hcfg.test_size) < 1.0):
         raise ValueError(f"holdout.test_size 必须在 (0,1) 之间，当前={hcfg.test_size}")
+    if not (0.0 <= float(hcfg.mix_fraction) <= 1.0):
+        raise ValueError(f"holdout.mix_fraction 必须在 [0,1] 之间，当前={hcfg.mix_fraction}")
 
     random_state = int(hcfg.random_state) if hcfg.random_state is not None else seed
 
@@ -264,23 +285,6 @@ def run_holdout(
             random_state=int(random_state),
         )
 
-        #metric 可选
-        mix_ratio = 0.5  # 把测试集的 30% 掺回训练集
-
-        rng = np.random.RandomState(int(random_state))
-        n_mix = int(len(X_test) * mix_ratio)
-        mix_idx = rng.choice(X_test.index, size=n_mix, replace=False)
-
-        X_mix = X_test.loc[mix_idx]
-        y_mix = y_test.loc[mix_idx]
-
-        X_test = X_test.drop(index=mix_idx)
-        y_test = y_test.drop(index=mix_idx)
-        
-        X_train = pd.concat([X_train, X_mix], axis=0)
-        y_train = pd.concat([y_train, y_mix], axis=0)
-        #######################
-
         key_str = "_".join(map(str, g if isinstance(g, tuple) else (g,))).replace(" ", "")
 
         for mname in models:
@@ -292,35 +296,25 @@ def run_holdout(
             pipe = Pipeline(steps=[("pre", pre), ("model", base)])
 
             pipe.fit(X_train, y_train)
-            ###########################
-            eval_mix_ratio = 1  # 训练集掺入评估集的比例
-            #从训练集抽样
-            n_eval_mix = int(len(X_train) * eval_mix_ratio)
-            eval_idx = X_train.sample(n=n_eval_mix, random_state=int(random_state)).index
+            # 对齐“土壤农产品”做法：可选把训练样本混入评估集（会造成泄漏，指标会虚高）
+            if hcfg.mix_train_into_test and hcfg.mix_fraction > 0:
+                n_eval_mix = max(1, int(len(X_train) * hcfg.mix_fraction))
+                n_eval_mix = min(n_eval_mix, len(X_train))
+                eval_idx = X_train.sample(n=n_eval_mix, random_state=int(random_state)).index
+                X_eval_mix = X_train.loc[eval_idx]
+                y_eval_mix = y_train.loc[eval_idx]
+                X_eval = pd.concat([X_test, X_eval_mix], axis=0, ignore_index=True)
+                y_eval = pd.concat([y_test, y_eval_mix], axis=0, ignore_index=True)
+            else:
+                X_eval = X_test.reset_index(drop=True)
+                y_eval = y_test.reset_index(drop=True)
 
-            X_eval_mix = X_train.loc[eval_idx]
-            y_eval_mix = y_train.loc[eval_idx]
-            
-            ####评估掺杂训练集
-            X_eval = pd.concat([X_test, X_eval_mix], axis=0)
-            y_eval = pd.concat([y_test, y_eval_mix], axis=0)
-            ###########################
-
-            #y_pred = pipe.predict(X_test)
             y_pred = pipe.predict(X_eval)
-            ###########################
-            #添加y_pred过滤
-            #mask = np.isfinite(y_test) & np.isfinite(y_pred) & (y_pred >= 0)
-            #y_test_f = y_test[mask]
-            #y_pred_f = y_pred[mask]
+
             mask = np.isfinite(y_eval) & np.isfinite(y_pred) & (y_pred >= 0)
             y_eval_f = y_eval[mask]
             y_pred_f = y_pred[mask]
-            ################################
-            #r2 = float(r2_score(y_test_f, y_pred_f))
-            #rmse = _rmse(y_test_f, y_pred_f)
-            #mae = float(mean_absolute_error(y_test_f, y_pred_f))
-            ############################################
+
             r2 = float(r2_score(y_eval_f, y_pred_f))
             rmse = _rmse(y_eval_f, y_pred_f)
             mae = float(mean_absolute_error(y_eval_f, y_pred_f))
@@ -336,18 +330,14 @@ def run_holdout(
                 "test_size": float(hcfg.test_size),
                 "random_state": int(random_state),
                 "split_by_group": bool(hcfg.split_by_group),
+                "mix_train_into_test": bool(hcfg.mix_train_into_test),
+                "mix_fraction": float(hcfg.mix_fraction) if hcfg.mix_train_into_test else 0.0,
             })
-            ##################
-            #pred_df = X_test.copy()
-            #pred_df["y_true"] = np.asarray(y_test)
-            #pred_df["y_pred"] = np.asarray(y_pred)
-            #pred_df["residual"] = pred_df["y_pred"] - pred_df["y_true"]
-            ################################
+
             pred_df = X_eval.copy()
             pred_df["y_true"] = np.asarray(y_eval)
             pred_df["y_pred"] = np.asarray(y_pred)
             pred_df["residual"] = pred_df["y_pred"] - pred_df["y_true"]
-            ##############################
 
             pred_df = pred_df[pred_df["y_pred"] >= 0].reset_index(drop=True)
 
@@ -369,10 +359,6 @@ def run_holdout(
             resid_path = fig_dir / f"resid_holdout_{key_str}_{mname}.png"
 
             target_label = cfg["data"]["columns"]["target_bcf"]
-            ##########################掺杂
-            #obs_pred_scatter(y_test.values, y_pred, title, obs_path, target_label=target_label)
-            #residual_plot(y_test.values, y_pred, title, resid_path, target_label=target_label)
-            #############
             obs_pred_scatter(y_eval, y_pred, title, obs_path, target_label=target_label)
             residual_plot(y_eval, y_pred, title, resid_path, target_label=target_label)
 

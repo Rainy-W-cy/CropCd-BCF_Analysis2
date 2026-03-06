@@ -83,6 +83,40 @@ def _get_model_and_space(name: str, seed: int):
         return (base, {"model__hidden_layer_sizes":[(64,32),(128,64),(128,128)],
                        "model__alpha":[1e-5,1e-4,1e-3],
                        "model__learning_rate_init":[5e-4,1e-3,2e-3]})
+    if name in ("cat", "catboost"):
+        try:
+            from catboost import CatBoostRegressor
+            base = CatBoostRegressor(
+                loss_function="RMSE",
+                random_seed=seed,
+                verbose=False,
+            )
+            return (base, {
+                "model__iterations":[400,800,1200],
+                "model__depth":[4,6,8],
+                "model__learning_rate":[0.02,0.05,0.1],
+                "model__l2_leaf_reg":[1,3,5,7],
+            })
+        except Exception as e:
+            raise ValueError(f"catboost not available: {e}")
+    if name in ("lgbm", "lightgbm"):
+        try:
+            from lightgbm import LGBMRegressor
+            base = LGBMRegressor(
+                random_state=seed,
+                objective="regression",
+                verbosity=-1,
+            )
+            return (base, {
+                "model__n_estimators":[400,800,1200],
+                "model__learning_rate":[0.02,0.05,0.1],
+                "model__num_leaves":[15,31,63],
+                "model__subsample":[0.7,0.8,1.0],
+                "model__colsample_bytree":[0.7,0.8,1.0],
+                "model__reg_lambda":[0.1,1.0,10.0],
+            })
+        except Exception as e:
+            raise ValueError(f"lightgbm not available: {e}")
     raise ValueError("Unknown model")
 
 def fit_oof_with_spatialcv(df: pd.DataFrame, cfg: Dict[str, Any], groups: np.ndarray, model_name: str, cv) -> ModelResult:
