@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.colors import LinearSegmentedColormap
 
 try:
     import geopandas as gpd
@@ -21,6 +22,15 @@ except Exception:
 DEFAULT_ADCODE = "520526"
 GEOJSON_URL_FULL = "https://geo.datav.aliyun.com/areas_v3/bound/{adcode}_full.json"
 GEOJSON_URL_SIMPLE = "https://geo.datav.aliyun.com/areas_v3/bound/{adcode}.json"
+
+MAP_BG = "#F9F7F1"
+MAP_GRID = "#D9D7CF"
+MAP_AXIS = "#111827"
+MAP_POINT_EDGE = "#0F172A"
+MAP_CMAP = LinearSegmentedColormap.from_list(
+    "soil_map_pastel",
+    ["#A94442", "#E4A8AA", "#F9F0E0", "#CCE7E3", "#2F6C74"],
+)
 
 
 @dataclass
@@ -39,6 +49,7 @@ class MapCfg:
     boundary_path: Optional[str] = None
     boundary_color: str = "#3D4B5A"
     boundary_width: float = 1.8
+    cmap: str = "soil_map_pastel"
     point_crs: Optional[str] = None
 
 
@@ -60,8 +71,16 @@ def _get(cfg: Dict) -> MapCfg:
         boundary_path=m.get("boundary_path", None),
         boundary_color=str(m.get("boundary_color", "#3D4B5A")),
         boundary_width=float(m.get("boundary_width", 1.8)),
+        cmap=str(m.get("cmap", "soil_map_pastel")),
         point_crs=m.get("point_crs", None),
     )
+
+
+def _resolve_cmap(name: str):
+    n = str(name or "").strip().lower()
+    if n in {"soil_map_pastel", "soil", "pastel"}:
+        return MAP_CMAP
+    return name if n else MAP_CMAP
 
 
 def _resolve_boundary_path(boundary_path: Optional[str]) -> Optional[Path]:
@@ -217,6 +236,8 @@ def plot_point_map(
         vmax = float(np.nanmax(d[val_col].to_numpy()))
 
     fig, ax = plt.subplots(figsize=(10, 8), dpi=150)
+    fig.patch.set_facecolor(MAP_BG)
+    ax.set_facecolor(MAP_BG)
 
     # Draw boundary first.
     bnd = _draw_boundary(ax, mc)
@@ -227,8 +248,8 @@ def plot_point_map(
         c=d[val_col],
         s=mc.s,
         alpha=mc.alpha,
-        cmap="Spectral_r",
-        edgecolors="k",
+        cmap=_resolve_cmap(mc.cmap),
+        edgecolors=MAP_POINT_EDGE,
         linewidth=0.3,
         vmin=vmin,
         vmax=vmax,
@@ -251,8 +272,14 @@ def plot_point_map(
     ax.set_xlabel("Longitude")
     ax.set_ylabel("Latitude")
     cbar = plt.colorbar(sc, ax=ax, fraction=0.03, pad=0.04)
-    cbar.ax.set_title(val_col, fontsize=10)
-    ax.grid(True, linestyle="--", alpha=0.3)
+    cbar.ax.set_title(val_col, fontsize=10, color=MAP_AXIS)
+    cbar.ax.tick_params(colors=MAP_AXIS, labelsize=9)
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(1.6)
+        spine.set_color(MAP_AXIS)
+    ax.tick_params(colors=MAP_AXIS)
+    ax.grid(True, linestyle="--", color=MAP_GRID, alpha=0.25)
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     plt.tight_layout()
